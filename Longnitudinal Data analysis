@@ -1,0 +1,90 @@
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(ez)
+library(lme4)
+library(Matrix)
+library(lmerTest)
+library(nlme)
+library(tools)
+library(car)
+library(HSAUR)
+library(lsmeans)
+library(multcomp)
+library(agricolae)
+data<-read.delim2("Diamter_new.txt")
+names(data)
+head(data)
+tail(data)
+head(data)
+  Sub   Genotype                Treatments Data.Points Diameter
+1  27  MN18-C-3a     Non Myco_Watered_Mock    Jun 2022        3
+2  50    MN5-M-6         Myco_Watered_Mock    Jun 2022      4.2
+3  39    MN1-M-4         Myco_Drought_Mock    Jun 2022     5.81
+4  43    MN2-M-1         Myco_Drought_Mock    Jun 2022     5.81
+5  10   MN14-M-5         Myco_Drought_Mock    Jun 2022     5.83
+6   2 MN11-C-5-F Non Myco_Drought_Pathogen    Jun 2022     5.86
+  Root.Symbiont Water.Status Inoculation
+1      Non Myco      Watered        Mock
+2          Myco      Watered        Mock
+3          Myco      Drought        Mock
+4          Myco      Drought        Mock
+5          Myco      Drought        Mock
+6      Non Myco      Drought    Pathogen
+#Normality Test
+x<-data %>%
+  group_by( Data.Points, Root.Symbiont,Water.Status,Inoculation) %>%
+  shapiro_test(Diameter)
+print(x, n = 32)
+
+attach(data)
+#Lets Run Model for Repeated Measure Data 
+BlueModel=lmer(Diameter ~ Data.Points*Root.Symbiont*Water.Status*Inoculation + (1 | Sub),
+               contrasts = list(Data.Points="contr.sum", Root.Symbiont="contr.sum", Water.Status="contr.sum",Inoculation="contr.sum"))
+Anova(BlueModel, test="F", type="III") 
+#PostHoc Test
+lsd_posthoc <- lsmeans(BlueModel, ~ Data.Points*Root.Symbiont*Water.Status*Inoculation, adjust = "lsd")
+print(lsd_posthoc)
+grouping_letters <- cld(lsd_posthoc,Letters = letters)
+print(grouping_letters)
+#Mean and Standard error 
+data_summary <- group_by(data, Data.Points,Root.Symbiont,Water.Status,Inoculation) %>%
+  get_summary_stats(Diameter, type = "mean_se")%>%
+  arrange(mean) 
+print(data_summary, n=32)
+#Posthoc significance with summary statistics 
+group_column <- grouping_letters$.group
+data_summary_with_group <- cbind(data_summary, .group = group_column)
+print(data_summary_with_group)
+
+#To plot Lets combine mutiple treatment in to group 
+
+df <- unite(data_summary_with_group, Treatments, Root.Symbiont, Water.Status, Inoculation, sep = "_")
+
+# Print the updated data frame
+print(df)
+#Fun Time Lets Plot
+data$Diameter <- as.numeric(data$Diameter)
+data$Data.Points <- factor(data$Data.Points, levels = c("Jun 2022", "Sep 2022", "Apr 2023", "May 2023"))
+boxplot <- ggplot(data, aes(x = Data.Points, y = Diameter, fill = Treatments)) +  # Change fill to color if preferred
+  geom_boxplot(width = 0.8, position = position_dodge(width = 0.85), outlier.size = .5) +
+  scale_fill_brewer(palette = "Set3")+
+  labs(x = "Data Points", y = "Diameter (mm)") +  # Customize axis labels as needed
+  theme_bw()+
+  theme(axis.title.x = element_text(size = 14, color = "black"), 
+        axis.text.x = element_text(size = 12,color = "black"),
+        axis.ticks.x = element_blank(),  # Hide x-axis ticks
+        axis.title.y = element_text(size = 14, color = "black"),  # Customize y-axis title font size and color
+        axis.text.y = element_text(size = 12,color = "black"))
+
+#Display LSD Values on Top
+boxplot_with_letters_1 <- boxplot +
+  geom_text(data = df, aes(label = .group, x = Data.Points, y = mean+se + 1, angle=90), position = position_dodge(width = 0.85), vjust = -0.05,  size = 2.5)+
+  theme(legend.position = "top", legend.justification = c(0.1, 1.1),legend.text = element_text(size = 10)) +guides(fill = guide_legend(nrow = 4))
+
+print(boxplot_with_letters_1)
+#Lets Save Data 
+png("Diamtere_plot_mulipoints.png", width = 22, height = 15, units = "cm", res = 300)
+
+print(boxplot_with_letters_1)
+dev.off()
